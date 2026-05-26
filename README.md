@@ -1,6 +1,6 @@
-# Mini Async Task Runner — Go + Redis
+# Mini Async Task Runner -> Go + Redis
 
-A task queue system built from scratch in Go using Redis as the message broker. No libraries like Celery or Sidekiq — just raw Redis commands to understand how async task runners actually work under the hood.
+A task queue system built from scratch in Go using Redis as the message broker. No libraries like Celery or Sidekiq just raw Redis commands to understand how async task runners actually work under the hood.
 
 ---
 
@@ -31,17 +31,17 @@ Think of it like a restaurant kitchen:
 
 ## The 5 Files Explained
 
-### `task.go` — What is a task?
+### `task.go` -> What is a task?
 
 A task is a unit of work with:
 - An ID (unique identifier)
-- A type (which handler to run — "compliance_scan", "send_email", etc.)
-- A queue (which line to stand in — "scans" or "default")
-- A payload (the data the handler needs — like `{"provider": "aws"}`)
+- A type (which handler to run -> "compliance_scan", "send_email", etc.)
+- A queue (which line to stand in -> "scans" or "default")
+- A payload (the data the handler needs -> like `{"provider": "aws"}`)
 - Retry state (how many times it's been attempted, when to retry next)
 - Backoff calculator (each retry waits longer: 2s → 4s → 8s → 16s → max 5min)
 
-### `broker.go` — The Redis message transport
+### `broker.go` -> The Redis message transport
 
 The broker is the middleman between producers and workers. It uses Redis commands:
 
@@ -54,28 +54,28 @@ The broker is the middleman between producers and workers. It uses Redis command
 | DLQ | `LPUSH` to dlq list | Permanently failed task stored for debugging |
 | Lock | `SET NX` | Prevents same task from running twice simultaneously |
 
-**Why RPOPLPUSH?** It's atomic. If the worker crashes between popping and processing, the task is still in the processing list — it's never lost. This gives us **at-least-once delivery**.
+**Why RPOPLPUSH?** It's atomic. If the worker crashes between popping and processing, the task is still in the processing list it's never lost. This gives us **at-least-once delivery**.
 
-### `worker.go` — The worker pool
+### `worker.go` -> The worker pool
 
 The pool manages concurrency and task execution:
 
-1. **Polling loop** — continuously checks queues for new tasks (scans queue first, then default)
-2. **Semaphore** — a buffered Go channel that limits to 4 concurrent tasks max
-3. **Rate limiter** — a ticker that caps how fast tasks are dequeued (prevents thundering herd)
-4. **Timeout** — each task gets a context with deadline. If it takes too long, it's cancelled
-5. **Retry logic** — on failure, decides whether to retry or move to DLQ
-6. **Graceful shutdown** — on Ctrl+C, stops accepting new tasks and waits for in-flight tasks to finish
+1. **Polling loop** -> continuously checks queues for new tasks (scans queue first, then default)
+2. **Semaphore** -> a buffered Go channel that limits to 4 concurrent tasks max
+3. **Rate limiter** -> a ticker that caps how fast tasks are dequeued (prevents thundering herd)
+4. **Timeout** -> each task gets a context with deadline. If it takes too long, it's cancelled
+5. **Retry logic** -> on failure, decides whether to retry or move to DLQ
+6. **Graceful shutdown** -> on Ctrl+C, stops accepting new tasks and waits for in-flight tasks to finish
 
-### `handlers.go` — The actual work
+### `handlers.go` -> The actual work
 
 These are simulated task handlers (in production, they'd call real APIs):
 
-- `HandleComplianceScan` — simulates scanning a cloud account (3-8 seconds). GCP intentionally fails to demonstrate retry + DLQ behavior
-- `HandleSendEmail` — simulates sending a notification (500ms)
-- `HandleGenerateReport` — simulates PDF generation (2 seconds)
+- `HandleComplianceScan` -> simulates scanning a cloud account (3-8 seconds). GCP intentionally fails to demonstrate retry + DLQ behavior
+- `HandleSendEmail` -> simulates sending a notification (500ms)
+- `HandleGenerateReport` -> simulates PDF generation (2 seconds)
 
-### `main.go` — Ties everything together
+### `main.go` -> Ties everything together
 
 1. Connects to Redis
 2. Registers handlers in the registry
@@ -213,14 +213,14 @@ redis-cli FLUSHDB
 
 ```
 async/
-├── main.go        — Entry point, producer, DLQ monitor, shutdown
-├── task.go        — Task struct, status types, backoff math
-├── broker.go      — Redis operations (enqueue, dequeue, ack, DLQ, locks)
-├── worker.go      — Worker pool, concurrency, timeout, retry logic
-├── handlers.go    — Simulated task handlers (scan, email, report)
-├── go.mod         — Go module + Redis dependency
-├── go.sum         — Dependency checksums
-└── README.md      — This file
+├── main.go        -> Entry point, producer, DLQ monitor, shutdown
+├── task.go        -> Task struct, status types, backoff math
+├── broker.go      -> Redis operations (enqueue, dequeue, ack, DLQ, locks)
+├── worker.go      -> Worker pool, concurrency, timeout, retry logic
+├── handlers.go    -> Simulated task handlers (scan, email, report)
+├── go.mod         -> Go module + Redis dependency
+├── go.sum         -> Dependency checksums
+└── README.md      -> This file
 ```
 
 ---
@@ -241,10 +241,10 @@ async/
 
 ## Scaling This to Production
 
-1. **More workers** — Run multiple instances of this binary (horizontal scaling)
-2. **Redis Streams** — Replace Lists with Streams for consumer groups (multiple consumers, message replay)
-3. **Delayed queue** — Use Redis Sorted Sets (`ZADD` with score=timestamp) for proper scheduled tasks
-4. **Metrics** — Export queue depth, processing time, error rate to Prometheus
-5. **Health check** — Add HTTP `/health` endpoint for Kubernetes liveness probes
-6. **Circuit breaker** — Stop processing if downstream keeps failing (prevent cascade)
-7. **Sharding** — Partition queues by tenant or region for multi-tenant systems
+1. **More workers** -> Run multiple instances of this binary (horizontal scaling)
+2. **Redis Streams** -> Replace Lists with Streams for consumer groups (multiple consumers, message replay)
+3. **Delayed queue** -> Use Redis Sorted Sets (`ZADD` with score=timestamp) for proper scheduled tasks
+4. **Metrics** -> Export queue depth, processing time, error rate to Prometheus
+5. **Health check** -> Add HTTP `/health` endpoint for Kubernetes liveness probes
+6. **Circuit breaker** -> Stop processing if downstream keeps failing (prevent cascade)
+7. **Sharding** -> Partition queues by tenant or region for multi-tenant systems

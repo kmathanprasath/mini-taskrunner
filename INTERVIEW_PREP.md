@@ -1,4 +1,4 @@
-# Interview Prep — Async Task Runners & Distributed Systems
+# Interview Prep - Async Task Runners & Distributed Systems
 
 Every question below is answered with reference to this repo's code where applicable.
 
@@ -14,13 +14,13 @@ Every question below is answered with reference to this repo's code where applic
 
 A task queue has 4 core components:
 
-1. **Producer** — creates tasks and pushes them to the queue. In this repo: `main.go produceDemoTasks()` calls `broker.Enqueue()`. In production: your API endpoint that triggers a scan.
+1. **Producer** -> creates tasks and pushes them to the queue. In this repo: `main.go produceDemoTasks()` calls `broker.Enqueue()`. In production: your API endpoint that triggers a scan.
 
-2. **Broker** — the message transport that holds tasks until workers pick them up. In this repo: Redis. Tasks are stored in Redis Lists (`queue:scans`, `queue:default`). The broker decouples producers from consumers — they don't need to know about each other.
+2. **Broker** -> the message transport that holds tasks until workers pick them up. In this repo: Redis. Tasks are stored in Redis Lists (`queue:scans`, `queue:default`). The broker decouples producers from consumers — they don't need to know about each other.
 
-3. **Queue** — a FIFO data structure holding pending tasks. In this repo: Redis List with LPUSH (add to left) and RPOP (take from right). Multiple named queues allow priority and isolation (`scans` queue is checked before `default`).
+3. **Queue** -> a FIFO data structure holding pending tasks. In this repo: Redis List with LPUSH (add to left) and RPOP (take from right). Multiple named queues allow priority and isolation (`scans` queue is checked before `default`).
 
-4. **Worker** — a process/goroutine that dequeues tasks and executes them. In this repo: `worker.go WorkerPool` runs 4 goroutines, each pulling tasks and calling the registered handler.
+4. **Worker** -> a process/goroutine that dequeues tasks and executes them. In this repo: `worker.go WorkerPool` runs 4 goroutines, each pulling tasks and calling the registered handler.
 
 **How they interact:**
 ```
@@ -42,7 +42,7 @@ A DLQ is a separate queue where tasks go after they've permanently failed (exhau
 
 **In this repo:** `broker.go MoveToDLQ()` pushes the failed task to `queue:{name}:dlq`. The `main.go runDLQMonitor()` checks DLQ size every 15 seconds (like a K8s CronJob).
 
-**Real-world example:** In our compliance engine, `cleanup_stuck_scans` runs every 15 minutes. If a scan has been stuck in PENDING/RUNNING for >45 minutes (worker crashed), it marks it FAILED. Same concept as DLQ — isolate the failure, don't let it block new scans.
+**Real-world example:** In our compliance engine, `cleanup_stuck_scans` runs every 15 minutes. If a scan has been stuck in PENDING/RUNNING for >45 minutes (worker crashed), it marks it FAILED. Same concept as DLQ isolate the failure, don't let it block new scans.
 
 ---
 
@@ -51,9 +51,9 @@ A DLQ is a separate queue where tasks go after they've permanently failed (exhau
 **Answer:**
 
 When a task fails, you have three choices:
-1. **No retry** — task is lost (at-most-once)
-2. **Immediate retry** — hammers the failing service, makes things worse
-3. **Exponential backoff** — wait longer between each retry (correct approach)
+1. **No retry** -> task is lost (at-most-once)
+2. **Immediate retry** -> hammers the failing service, makes things worse
+3. **Exponential backoff** -> wait longer between each retry (correct approach)
 
 **Exponential backoff formula in this repo** (`task.go BackoffDuration()`):
 ```
@@ -95,9 +95,9 @@ Retry 4: wait 16 seconds
 - Why it's hard: between "task completed" and "ack sent", the network can fail. The broker doesn't know if the task completed or not, so it must redeliver (at-least-once) or accept loss (at-most-once)
 
 **In this repo:**
-- `broker.go Dequeue()` uses RPOPLPUSH — atomically moves task from queue to processing list
+- `broker.go Dequeue()` uses RPOPLPUSH atomically moves task from queue to processing list
 - `broker.go Ack()` removes from processing list only after handler succeeds
-- `broker.go AcquireLock()` uses SETNX for idempotency — prevents duplicate concurrent execution
+- `broker.go AcquireLock()` uses SETNX for idempotency prevents duplicate concurrent execution
 
 ---
 
@@ -110,15 +110,15 @@ An operation is idempotent if executing it multiple times produces the same resu
 **Why it matters:** With at-least-once delivery, a task might run twice (worker crashes after completing but before acking). If the handler isn't idempotent, you get duplicate side effects (double charges, duplicate emails, corrupted data).
 
 **How to achieve idempotency:**
-1. **Unique constraint** — database rejects duplicate inserts (e.g., unique scan_id)
-2. **Idempotency key** — check if this exact operation already completed before doing it again
-3. **Distributed lock** — prevent concurrent execution of the same task
+1. **Unique constraint** -> database rejects duplicate inserts (e.g., unique scan_id)
+2. **Idempotency key** -> check if this exact operation already completed before doing it again
+3. **Distributed lock** -> prevent concurrent execution of the same task
 
 **In this repo:** `broker.go AcquireLock()` uses Redis `SET NX` (set if not exists) with a TTL. Before processing, the worker tries to acquire the lock. If another worker already has it → skip. This is the same pattern as the compliance engine's `if already_running: skip` check.
 
 ---
 
-### Q: Explain scheduling patterns — cron-style vs event-driven.
+### Q: Explain scheduling patterns - cron-style vs event-driven.
 
 **Answer:**
 
@@ -146,7 +146,7 @@ An operation is idempotent if executing it multiple times produces the same resu
 **Fan-out pattern:**
 - One trigger dispatches many tasks (e.g., cron triggers scans for ALL 100 providers)
 - Problem: 100 tasks starting simultaneously overwhelms cloud APIs
-- Solution: staggered dispatch — each task gets an increasing delay
+- Solution: staggered dispatch each task gets an increasing delay
 - In this repo: `main.go` sets `task.NotBefore = time.Now().Add(i * 2s)`
 - In the backend: `cron_scan.py` uses `countdown=delay` incrementing by 30s per provider
 
@@ -161,22 +161,22 @@ An operation is idempotent if executing it multiple times produces the same resu
 **Answer:**
 
 In a distributed system, you can only guarantee 2 out of 3:
-- **C**onsistency — every read returns the most recent write
-- **A**vailability — every request gets a response (even if stale)
-- **P**artition tolerance — system works despite network splits between nodes
+- **C**onsistency -> every read returns the most recent write
+- **A**vailability -> every request gets a response (even if stale)
+- **P**artition tolerance -> system works despite network splits between nodes
 
 **You must always choose P** (networks WILL partition), so the real choice is:
-- **CP** (Consistency + Partition tolerance) — reject requests during partition rather than serve stale data
+- **CP** (Consistency + Partition tolerance) reject requests during partition rather than serve stale data
   - Examples: PostgreSQL, etcd, ZooKeeper, Redis (single-node)
   - Use when: financial transactions, leader election, task deduplication
-- **AP** (Availability + Partition tolerance) — serve potentially stale data rather than reject requests
+- **AP** (Availability + Partition tolerance) serve potentially stale data rather than reject requests
   - Examples: Cassandra, DynamoDB, DNS, CDNs
   - Use when: shopping carts, social media feeds, analytics
 
 **How this applies to our task runner:**
 - Our Redis broker is CP (single-node Redis is consistent but unavailable if it goes down)
-- Task state must be consistent — we can't have two workers thinking they own the same task
-- The SETNX lock in `broker.go` is a CP operation — it either succeeds or fails, never returns "maybe"
+- Task state must be consistent we can't have two workers thinking they own the same task
+- The SETNX lock in `broker.go` is a CP operation it either succeeds or fails, never returns "maybe"
 
 ---
 
@@ -188,9 +188,9 @@ From strongest to weakest:
 
 **Linearizability (strongest):**
 - Operations appear to happen instantaneously at some point between invocation and response
-- Like a single-threaded system — everyone sees the same order
+- Like a single-threaded system everyone sees the same order
 - Expensive (requires coordination between all nodes)
-- Example: Our Redis SETNX lock — either you got the lock or you didn't, no ambiguity
+- Example: Our Redis SETNX lock either you got the lock or you didn't, no ambiguity
 
 **Strong consistency:**
 - After a write completes, all subsequent reads return that write
@@ -199,7 +199,7 @@ From strongest to weakest:
 **Causal consistency:**
 - If operation A caused operation B, everyone sees A before B
 - But concurrent operations can be seen in different orders by different nodes
-- Example: "I posted a comment, then edited it" — everyone sees post before edit
+- Example: "I posted a comment, then edited it" everyone sees post before edit
 
 **Read-your-writes:**
 - After you write, YOUR subsequent reads see your write (but others might not yet)
@@ -207,7 +207,7 @@ From strongest to weakest:
 
 **Eventual consistency (weakest):**
 - Given enough time with no new writes, all replicas converge to the same value
-- No guarantee about WHEN — could be milliseconds or minutes
+- No guarantee about WHEN could be milliseconds or minutes
 - Example: DNS propagation, Cassandra with quorum=1
 
 **In this repo:**
@@ -224,9 +224,9 @@ From strongest to weakest:
 Raft solves: "How do N nodes agree on a single value (or sequence of operations) even if some nodes crash?"
 
 **Three roles:**
-1. **Leader** — handles all client requests, replicates to followers
-2. **Follower** — passively replicates what leader sends
-3. **Candidate** — a follower that hasn't heard from leader and starts an election
+1. **Leader** -> handles all client requests, replicates to followers
+2. **Follower** -> passively replicates what leader sends
+3. **Candidate** -> a follower that hasn't heard from leader and starts an election
 
 **Leader election process:**
 1. Follower's election timeout expires (hasn't heard from leader)
@@ -241,9 +241,9 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 - Raft prevents this: you need MAJORITY votes. With 5 nodes split 3/2, only the group of 3 can elect a leader. The group of 2 is stuck (no majority).
 
 **Where Raft is used:**
-- **etcd** — Kubernetes' brain. Stores all cluster state. Uses Raft for replication.
-- **Kubernetes leader election** — controllers use etcd leases to elect one active instance
-- **CockroachDB, TiKV** — distributed databases using Raft per partition
+- **etcd** -> Kubernetes' brain. Stores all cluster state. Uses Raft for replication.
+- **Kubernetes leader election** -> controllers use etcd leases to elect one active instance
+- **CockroachDB, TiKV** -> distributed databases using Raft per partition
 
 **Relevance to task queues:**
 - If we ran multiple Redis instances for HA, we'd need consensus on "who owns this task"
@@ -256,28 +256,28 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 
 **Answer:**
 
-**Chapter 5 — Replication:**
+**Chapter 5 Replication:**
 - Single-leader, multi-leader, leaderless replication
 - Replication lag and its consequences (read-your-writes, monotonic reads)
 - Conflict resolution in multi-leader setups
 
-**Chapter 6 — Partitioning (Sharding):**
+**Chapter 6 Partitioning (Sharding):**
 - Key-range vs hash partitioning
 - How to rebalance partitions when adding/removing nodes
 - Secondary indexes in partitioned systems
 
-**Chapter 7 — Transactions:**
+**Chapter 7 Transactions:**
 - ACID guarantees and what they actually mean
 - Isolation levels (read committed, snapshot isolation, serializable)
 - Distributed transactions and 2PC (two-phase commit)
 
-**Chapter 8 — The Trouble with Distributed Systems:**
+**Chapter 8 The Trouble with Distributed Systems:**
 - Unreliable networks (packets lost, delayed, duplicated)
 - Unreliable clocks (NTP drift, leap seconds)
 - Process pauses (GC, VM migration)
 - Why you can't trust any single source of truth without consensus
 
-**Chapter 9 — Consistency and Consensus:**
+**Chapter 9 Consistency and Consensus:**
 - Linearizability and its cost
 - Ordering guarantees (total order broadcast)
 - Consensus algorithms (Raft, Paxos)
@@ -289,37 +289,37 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 
 **Answer:**
 
-**Level 1 — Vertical scaling:**
+**Level 1 Vertical scaling:**
 - Bigger machine, more RAM, faster Redis
 - Limit: single machine has a ceiling
 
-**Level 2 — Horizontal scaling (what our K8s backend does):**
+**Level 2 Horizontal scaling (what our K8s backend does):**
 - Run multiple worker pods (HPA scales 2→8 based on CPU/memory)
 - All workers consume from the same Redis queue
 - RPOPLPUSH ensures no two workers grab the same task
 - This handles ~10K-100K tasks/day easily
 
-**Level 3 — Queue sharding (100M users):**
+**Level 3 Queue sharding (100M users):**
 - Single Redis instance becomes bottleneck at ~100K ops/sec
 - Shard queues by tenant, region, or hash: `queue:scans:us-east`, `queue:scans:eu-west`
 - Each shard has its own Redis instance + worker pool
 - Routing layer decides which shard handles which task
 
-**Level 4 — Replace Redis Lists with Redis Streams or Kafka:**
+**Level 4 Replace Redis Lists with Redis Streams or Kafka:**
 - Redis Streams: consumer groups, message acknowledgment, replay from offset
 - Kafka: persistent log, millions of messages/sec, multi-consumer replay
 - Both support partitioning natively
 
-**Level 5 — Multi-region:**
+**Level 5 Multi-region:**
 - Deploy queue infrastructure in each region
 - Tasks stay local to their region (data locality)
 - Cross-region only for coordination (leader election, global state)
 
 **Backpressure mechanisms:**
-- Queue depth monitoring — alert when queue grows faster than workers drain it
-- Rate limiting at ingestion — reject/throttle new tasks when system is saturated
-- Priority queues — critical tasks get processed first, bulk tasks wait
-- Circuit breaker — stop enqueueing if downstream is dead
+- Queue depth monitoring alert when queue grows faster than workers drain it
+- Rate limiting at ingestion reject/throttle new tasks when system is saturated
+- Priority queues critical tasks get processed first, bulk tasks wait
+- Circuit breaker stop enqueueing if downstream is dead
 
 ---
 
@@ -349,7 +349,7 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 - In our task runner: if all tasks fail (downstream is dead), exponential backoff prevents retry storms. A circuit breaker would stop processing entirely until downstream recovers.
 
 **Byzantine faults:**
-- A node sends WRONG data (not just no data) — lies, corruption, malicious behavior
+- A node sends WRONG data (not just no data) lies, corruption, malicious behavior
 - Most systems assume non-Byzantine (crash-fault tolerance only)
 - Relevant for: blockchain, multi-party computation. NOT relevant for internal task queues.
 
@@ -363,18 +363,18 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 
 **Answer:**
 
-**SLI (Service Level Indicator)** — a metric that measures service health
+**SLI (Service Level Indicator)** -> a metric that measures service health
 - Examples: request latency P99, error rate, task completion rate, queue depth
 - For our task runner: "percentage of tasks completed within 30 seconds"
 
-**SLO (Service Level Objective)** — a target value for an SLI
+**SLO (Service Level Objective)** -> a target value for an SLI
 - Example: "99.9% of tasks complete within 30 seconds"
-- Internal commitment — the team agrees to maintain this
+- Internal commitment the team agrees to maintain this
 - Defines the "error budget": if SLO is 99.9%, you can tolerate 0.1% failures per month
 
-**SLA (Service Level Agreement)** — a contract with consequences
+**SLA (Service Level Agreement)** -> a contract with consequences
 - Example: "If uptime drops below 99.9%, customer gets credits"
-- External commitment — legal/financial penalties for violation
+- External commitment legal/financial penalties for violation
 - SLA is always looser than SLO (you want buffer)
 
 **Error budget math:**
@@ -393,17 +393,17 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 
 **Answer:**
 
-**1. Alert** — monitoring detects anomaly
+**1. Alert** -> monitoring detects anomaly
 - Queue depth growing (tasks piling up)
 - Error rate spike (tasks failing)
 - Worker pods crashing (OOMKilled, CrashLoopBackOff)
 
-**2. Triage** — assess severity
+**2. Triage** -> assess severity
 - Is it affecting users? (P1 vs P3)
 - Is it getting worse? (growing queue = yes)
 - What's the blast radius? (one queue? all queues?)
 
-**3. Mitigate** — stop the bleeding (don't fix root cause yet)
+**3. Mitigate** -> stop the bleeding (don't fix root cause yet)
 - Scale up workers (increase HPA replicas)
 - Pause the failing queue (stop dequeuing)
 - Rollback recent deploy
@@ -415,12 +415,12 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 - Check deploys: was there a release in the last hour?
 - Check dependencies: is Redis/DB/downstream healthy?
 
-**5. Postmortem** — document and prevent recurrence
+**5. Postmortem** -> document and prevent recurrence
 - Timeline of events
 - What went wrong (root cause)
 - What went right (detection, mitigation)
 - Action items with owners and deadlines
-- No blame — focus on systemic improvements
+- No blame focus on systemic improvements
 
 **MTTR reduction strategies:**
 - Better alerting (catch issues in minutes, not hours)
@@ -435,9 +435,9 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 **Answer:**
 
 **RED Method (Rate, Errors, Duration):**
-- **Rate** — how many tasks/sec are being processed? Is it dropping?
-- **Errors** — what percentage of tasks are failing? Which types?
-- **Duration** — how long are tasks taking? P50 vs P99?
+- **Rate** -> how many tasks/sec are being processed? Is it dropping?
+- **Errors** -> what percentage of tasks are failing? Which types?
+- **Duration** -> how long are tasks taking? P50 vs P99?
 
 **P50 vs P99:**
 - P50 (median): half of tasks complete faster than this. Shows "normal" performance.
@@ -445,10 +445,10 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 - If P50=2s but P99=30s → you have a long-tail latency problem (some tasks are extremely slow)
 
 **Where latency hides in a task queue:**
-1. **Enqueue latency** — time to push to Redis (should be <1ms)
-2. **Queue wait time** — time task sits in queue before a worker picks it up (indicates worker saturation)
-3. **Processing time** — actual handler execution time
-4. **Ack latency** — time to acknowledge completion
+1. **Enqueue latency** -> time to push to Redis (should be <1ms)
+2. **Queue wait time** -> time task sits in queue before a worker picks it up (indicates worker saturation)
+3. **Processing time** -> actual handler execution time
+4. **Ack latency** -> time to acknowledge completion
 
 **Debugging tools:**
 - **Distributed tracing** (Tempo/Jaeger): trace a task from enqueue → dequeue → handler → ack
@@ -516,10 +516,10 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 3. Changes propagate to all instances without restart
 
 **Targeting strategies:**
-- **Boolean** — on/off for everyone
-- **Percentage rollout** — enable for 10% of users, then 50%, then 100% (canary)
-- **User targeting** — enable for specific accounts (beta testers)
-- **Environment targeting** — enabled in staging, disabled in production
+- **Boolean** -> on/off for everyone
+- **Percentage rollout** -> enable for 10% of users, then 50%, then 100% (canary)
+- **User targeting** -> enable for specific accounts (beta testers)
+- **Environment targeting** -> enabled in staging, disabled in production
 
 **Config validation patterns:**
 - Schema validation before applying (reject invalid config)
@@ -555,8 +555,8 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 4. If degraded → rollback canary immediately
 
 **In the backend:**
-- `CELERY_WORKER_CONCURRENCY` in ConfigMap — changing from 4→8 requires pod restart
-- `SCAN_STAGGER_SECONDS` — changing from 30→60 takes effect on next cron run
+- `CELERY_WORKER_CONCURRENCY` in ConfigMap changing from 4→8 requires pod restart
+- `SCAN_STAGGER_SECONDS` changing from 30→60 takes effect on next cron run
 - Secrets (credentials) are in K8s Secrets, rotated separately from config
 
 ---
@@ -568,13 +568,13 @@ Raft solves: "How do N nodes agree on a single value (or sequence of operations)
 **Goroutines:**
 - Lightweight threads (~2KB stack vs 1MB for OS threads)
 - In this repo: each worker is a goroutine, the poll loop is a goroutine, DLQ monitor is a goroutine
-- `go processTask(ctx, task)` — spawns concurrent execution
+- `go processTask(ctx, task)` spawns concurrent execution
 
 **Channels:**
 - Communication between goroutines (CSP model: "share memory by communicating")
-- In this repo: `sem chan struct{}` — buffered channel as concurrency semaphore
-- `stopCh chan struct{}` — signal channel for shutdown
-- `errCh chan error` — collect handler result from goroutine
+- In this repo: `sem chan struct{}` buffered channel as concurrency semaphore
+- `stopCh chan struct{}` signal channel for shutdown
+- `errCh chan error` collect handler result from goroutine
 
 **Context propagation:**
 - `context.Context` carries deadlines, cancellation signals, and values through call chains
@@ -658,7 +658,7 @@ return fmt.Errorf("dequeue from %s: %w", queue, err)
    → broker.go: AcquireLock() → Redis SET task:{id}:lock NX (idempotency)
    → task.Status = "running", task.StartedAt = now
    → broker.go: UpdateTaskState() → Redis SET task:{id} (persist state)
-   → handlers.go: HandleComplianceScan(ctx, task) — executes business logic
+   → handlers.go: HandleComplianceScan(ctx, task) executes business logic
 
 4a. SUCCESS:
    → task.Status = "completed", task.DoneAt = now
@@ -682,16 +682,16 @@ return fmt.Errorf("dequeue from %s: %w", queue, err)
 
 **Answer:**
 
-1. **Redis Streams instead of Lists** — consumer groups, message IDs, proper acknowledgment, replay from offset
-2. **Delayed queue with Sorted Sets** — `ZADD delayed_queue score=timestamp` + periodic ZRANGEBYSCORE to move ready tasks to main queue
-3. **Prometheus metrics** — queue depth, processing duration histogram, error rate counter, DLQ size gauge
-4. **HTTP health endpoint** — `/health` for K8s liveness probe, `/ready` for readiness
-5. **Structured JSON logging** — for Grafana/Loki ingestion instead of plain text
-6. **Configuration from environment** — all WorkerConfig values from env vars
-7. **Processing list reaper** — goroutine that checks processing list for stale tasks (worker crashed) and moves them back to queue
-8. **Graceful dequeue error handling** — suppress "context canceled" errors during shutdown
-9. **Task result storage** — store handler return values for the producer to query
-10. **Multi-instance coordination** — if running multiple binaries, use Redis Streams consumer groups so tasks aren't double-processed
+1. **Redis Streams instead of Lists** -> consumer groups, message IDs, proper acknowledgment, replay from offset
+2. **Delayed queue with Sorted Sets** -> `ZADD delayed_queue score=timestamp` + periodic ZRANGEBYSCORE to move ready tasks to main queue
+3. **Prometheus metrics** -> queue depth, processing duration histogram, error rate counter, DLQ size gauge
+4. **HTTP health endpoint** -> `/health` for K8s liveness probe, `/ready` for readiness
+5. **Structured JSON logging** -> for Grafana/Loki ingestion instead of plain text
+6. **Configuration from environment** -> all WorkerConfig values from env vars
+7. **Processing list reaper** -> goroutine that checks processing list for stale tasks (worker crashed) and moves them back to queue
+8. **Graceful dequeue error handling** -> suppress "context canceled" errors during shutdown
+9. **Task result storage** -> store handler return values for the producer to query
+10. **Multi-instance coordination** -> if running multiple binaries, use Redis Streams consumer groups so tasks aren't double-processed
 
 ---
 
@@ -836,11 +836,11 @@ redis-cli GET task:{id}
 
 **Mitigation strategies:**
 
-1. **Redis Sentinel** — automatic failover to replica (seconds of downtime)
-2. **Redis Cluster** — sharded, if one shard dies others continue
-3. **Local retry buffer** — producer holds tasks in memory/disk, retries enqueue with backoff
-4. **Circuit breaker on broker** — stop trying to enqueue, return error to caller immediately
-5. **Graceful degradation** — API returns "scan queued" optimistically, retries enqueue in background
+1. **Redis Sentinel** -> automatic failover to replica (seconds of downtime)
+2. **Redis Cluster** -> sharded, if one shard dies others continue
+3. **Local retry buffer** -> producer holds tasks in memory/disk, retries enqueue with backoff
+4. **Circuit breaker on broker** -> stop trying to enqueue, return error to caller immediately
+5. **Graceful degradation** -> API returns "scan queued" optimistically, retries enqueue in background
 
 **Data loss risk:**
 - Redis with AOF (appendonly): lose at most 1 second of data
@@ -861,19 +861,16 @@ redis-cli GET task:{id}
 | What's a broker? | Message transport between producers and consumers (Redis, Kafka, RabbitMQ) |
 | What's a DLQ? | Queue for permanently failed tasks that need human investigation |
 | Why exponential backoff? | Prevents retry storms that overwhelm failing services |
-| Why not exactly-once? | Two Generals Problem — can't confirm receipt over unreliable network |
+| Why not exactly-once? | Two Generals Problem can't confirm receipt over unreliable network |
 | What's idempotency? | Running an operation twice produces the same result as once |
 | What's a circuit breaker? | Stops calling a failing service, gives it time to recover |
 | What's a bulkhead? | Isolates failures so one component can't take down everything |
 | What's acks_late? | Acknowledge task only after completion, not on receipt |
 | What's prefetch=1? | Worker takes one task at a time, doesn't hoard from queue |
-| What's RPOPLPUSH? | Atomic pop-and-push — task is never "in limbo" between queues |
+| What's RPOPLPUSH? | Atomic pop-and-push task is never "in limbo" between queues |
 | P50 vs P99? | P50=median (normal case), P99=worst case for 99% of requests |
-| CAP — which to pick? | CP for task queues (consistency matters), AP for read-heavy caches |
+| CAP which to pick? | CP for task queues (consistency matters), AP for read-heavy caches |
 | Error budget? | 99.9% SLO = 43 minutes/month of allowed failures |
-| MTTR? | Mean Time To Recovery — how fast you fix incidents |
+| MTTR? | Mean Time To Recovery how fast you fix incidents |
 
 ---
-
-*Last updated: May 2026*
-*Repo: github.com/yourusername/mini-taskrunner*
